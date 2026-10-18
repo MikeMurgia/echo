@@ -1,0 +1,49 @@
+# --- Data (never commit NASA files; document how to download them in README) ---
+data/*
+!data/.gitkeep
+*.h5
+*.hdf5
+train_FD*.txt
+test_FD*.txt
+RUL_FD*.txt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# --- Model artifacts / caches (large, reproducible) ---
+models/
+*.pkl
+*.joblib
+*.pt
+*.ckpt
+.cache/
+
+# --- Results: keep small CSVs and figures, ignore scratch output ---
+results/scratch/
+results/**/*.npy
+results/**/*.parquet
+
+# --- Secrets / local config ---
+.env
+*.key
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Docs build junk ---
+~$*
+*.aux
+*.log
