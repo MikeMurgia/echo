@@ -1,6 +1,8 @@
 import pandas as pd
+from pathlib import Path
 
-df = pd.read_csv("../data/train_FD002.txt", sep=r"\s+", header=None)
+DATA_FILE = Path(__file__).resolve().parents[1] / "data" / "train_FD002.txt"
+df = pd.read_csv(DATA_FILE, sep=r"\s+", header=None)
 
 print(df.shape)
 print(df.head())
