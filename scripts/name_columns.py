@@ -61,7 +61,7 @@ print(df["regime"].value_counts().sort_index())
 # 2. Which sensors never vary inside a regime?
 within_sd = df.groupby("regime")[SENSORS].std().mean()
 print(within_sd.round(4))
-keep = [s for s in SENSORS if within_sd[s] > 1e-6]
+keep = [s for s in SENSORS if within_sd[s] > 0.003]
 print("dropping:", [s for s in SENSORS if s not in keep])
 
 # 3. Normalise each kept sensor within its regime
