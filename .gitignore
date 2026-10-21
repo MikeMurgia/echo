@@ -21,7 +21,7 @@ env/
 *.ipynb_checkpoints
 
 # --- Model artifacts / caches (large, reproducible) ---
-models/
+/models/
 *.pkl
 *.joblib
 *.pt
