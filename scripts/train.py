@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import math
 import random
 import sys
@@ -85,6 +86,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or mps")
     parser.add_argument("--save-dir", type=Path, default=ROOT / "results" / "checkpoints")
+    parser.add_argument("--history-output", type=Path, default=ROOT / "results" / "training_history.csv",
+                        help="CSV path for per-epoch train and validation RMSE")
     parser.add_argument("--d-model", type=int, default=128)
     parser.add_argument("--layers", type=int, default=3)
     parser.add_argument("--dropout", type=float, default=0.2)
@@ -125,11 +128,18 @@ def main() -> None:
     best_rmse = float("inf")
     best_epoch = 0
     epochs_without_improvement = 0
+    history = []
 
     print(f"Training {args.model} on {args.subset} with {len(features)} features using {device}")
     for epoch in range(1, args.epochs + 1):
         train_rmse = train_epoch(model, train_loader, optimizer, criterion, device)
         val_mse, val_rmse, val_score = evaluate(model, val_loader, device)
+        history.append({"epoch": epoch, "train_rmse": train_rmse, "val_rmse": val_rmse})
+        args.history_output.parent.mkdir(parents=True, exist_ok=True)
+        with args.history_output.open("w", newline="") as history_file:
+            writer = csv.DictWriter(history_file, fieldnames=("epoch", "train_rmse", "val_rmse"))
+            writer.writeheader()
+            writer.writerows(history)
         print(
             f"Epoch {epoch:03d}/{args.epochs} "
             f"train_RMSE={train_rmse:.3f} val_MSE={val_mse:.3f} "

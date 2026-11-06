@@ -45,7 +45,27 @@ validation RMSE. The best checkpoint is saved under `results/checkpoints/`:
 ```bash
 python scripts/train.py --subset FD001 --model transformer --epochs 50 --lr 0.001 --window-size 30
 ```
-## 4. Split conformal calibration
+## 4. Mondrian conformal calibration
+
+Calibrate 90% symmetric intervals with separate early, mid, and late RUL
+groups using half of the engine-level validation split, then assess on the
+remaining validation engines:
+
+```bash
+python scripts/conformal_calibration.py --subset FD001 --coverage 0.90
+```
+
+The default groups are predicted RUL above 100 (early), 30 through 100 (mid),
+and below 30 (late). Predicted RUL defines the group at calibration and
+inference, so interval selection does not need the unknown true RUL. Each
+group gets its own finite-sample error quantile; sparse groups can produce
+unbounded intervals. The script writes stage metrics to
+`results/conformal_stage_summary.csv` and representative assessment-engine
+trajectories with dynamic bands to `results/mondrian_intervals.png`. Use the
+same validation fraction and seed as training. Coverage is summarized by the
+predicted RUL group used to select each interval. Guarantees require
+exchangeability within groups, while overlapping windows are dependent and do
+not provide engine-level coverage guarantees.
 
 ## Folders and files
 
