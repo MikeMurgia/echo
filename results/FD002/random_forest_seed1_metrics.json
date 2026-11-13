@@ -1,0 +1,14 @@
+{
+  "model": "random_forest",
+  "subset": "FD002",
+  "seed": 1,
+  "val_rmse": 20.269092118537838,
+  "val_nasa_score": 118998.72647866866,
+  "test_rmse_capped": 16.876970698681923,
+  "test_nasa_score_capped": 1802.632635143171,
+  "train_seconds": 37.303165435791016,
+  "window_size": 30,
+  "stride": 1,
+  "test_rmse_raw": 29.822561698008627,
+  "test_nasa_score_raw": 21409.378931982646
+}

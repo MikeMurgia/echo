@@ -1,0 +1,14 @@
+{
+  "model": "xgboost",
+  "subset": "FD002",
+  "seed": 2,
+  "val_rmse": 18.893404006958008,
+  "val_nasa_score": 106479.3125,
+  "test_rmse_capped": 16.837818145751953,
+  "test_nasa_score_capped": 1581.669921875,
+  "train_seconds": 3.156651496887207,
+  "window_size": 30,
+  "stride": 1,
+  "test_rmse_raw": 30.057846069335938,
+  "test_nasa_score_raw": 30030.375
+}

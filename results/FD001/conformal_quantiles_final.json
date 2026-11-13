@@ -1,0 +1,62 @@
+{
+  "checkpoint": "results\\checkpoints\\transformer_FD001_tuned_seed1_best.pt",
+  "subset": "FD001",
+  "model": "transformer",
+  "default_coverage": 0.9,
+  "early_rul": 100.0,
+  "late_rul": 30.0,
+  "min_group": 30,
+  "calibration_engines_total": 100,
+  "calibration_windows": {
+    "early": 7538,
+    "mid": 2389,
+    "late": 269
+  },
+  "calibration_engines": {
+    "early": 100,
+    "mid": 69,
+    "late": 25
+  },
+  "levels": {
+    "0.8": {
+      "q_global": 15.236083984375,
+      "q_stage": {
+        "early": 12.906898498535156,
+        "mid": 23.39118194580078,
+        "late": 5.231649398803711
+      },
+      "stage_fallback_to_global": {
+        "early": false,
+        "mid": false,
+        "late": false
+      }
+    },
+    "0.9": {
+      "q_global": 23.229965209960938,
+      "q_stage": {
+        "early": 20.186317443847656,
+        "mid": 31.130409240722656,
+        "late": 6.991998672485352
+      },
+      "stage_fallback_to_global": {
+        "early": false,
+        "mid": false,
+        "late": false
+      }
+    },
+    "0.95": {
+      "q_global": 30.04981231689453,
+      "q_stage": {
+        "early": 26.19530487060547,
+        "mid": 37.21167755126953,
+        "late": 9.268434524536133
+      },
+      "stage_fallback_to_global": {
+        "early": false,
+        "mid": false,
+        "late": false
+      }
+    }
+  },
+  "note": "calibrated on every test engine; coverage is evidenced by the repeated split-assessment, not measured on these engines. signed residual = predicted - true RUL (capped)."
+}

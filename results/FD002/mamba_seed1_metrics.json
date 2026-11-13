@@ -1,0 +1,23 @@
+{
+  "model": "mamba",
+  "subset": "FD002",
+  "seed": 1,
+  "device": "cuda",
+  "best_epoch": 1,
+  "epochs_run": 8,
+  "val_rmse": 18.130756378173828,
+  "val_nasa_score": 86230.6015625,
+  "test_rmse_capped": 14.326297760009766,
+  "test_nasa_score_capped": 1374.0966796875,
+  "n_params": 361089,
+  "train_seconds": 610.9881961345673,
+  "window_size": 30,
+  "d_model": 128,
+  "layers": 3,
+  "dropout": 0.2,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "stride": 1,
+  "test_rmse_raw": 25.77466583251953,
+  "test_nasa_score_raw": 9038.6845703125
+}

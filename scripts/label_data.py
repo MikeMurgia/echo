@@ -10,7 +10,8 @@ def add_rul_train(df, cap=RUL_CAP):
     """Train engines run to failure: RUL = last cycle - current cycle, capped."""
     df = df.copy()
     max_cycle = df.groupby("unit")["cycle"].transform("max")
-    df["RUL"] = (max_cycle - df["cycle"]).clip(upper=cap)
+    df["RUL_raw"] = max_cycle - df["cycle"]          # true RUL, uncapped (for reporting)
+    df["RUL"] = df["RUL_raw"].clip(upper=cap)        # training target, capped
     return df
 
 
@@ -22,7 +23,8 @@ def add_rul_test(df, true_rul_last, cap=RUL_CAP):
     last_cycle = df.groupby("unit")["cycle"].max()          # indexed by unit, ascending
     assert len(true_rul_last) == len(last_cycle), "RUL file and test file have different engine counts"
     true_last = pd.Series(list(true_rul_last), index=last_cycle.index)
-    df["RUL"] = (df["unit"].map(true_last) + df["unit"].map(last_cycle) - df["cycle"]).clip(upper=cap)
+    df["RUL_raw"] = df["unit"].map(true_last) + df["unit"].map(last_cycle) - df["cycle"]
+    df["RUL"] = df["RUL_raw"].clip(upper=cap)
     return df
 
 
@@ -45,7 +47,7 @@ def label_file(path, cap=RUL_CAP):
     out_path = path.with_name(f"rul_{path.name}")
     df.to_csv(out_path, sep=" ", index=False)
     print(f"{path.name}: {df['unit'].nunique()} engines, {len(df)} rows, "
-          f"RUL {df['RUL'].min()}-{df['RUL'].max()} -> {out_path.name}")
+          f"RUL (capped) {df['RUL'].min()}-{df['RUL'].max()}, RUL_raw {df['RUL_raw'].min()}-{df['RUL_raw'].max()} -> {out_path.name}")
     return out_path
 
 

@@ -12,6 +12,7 @@ and add a ``regime`` column for downstream window generation.
 import argparse
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -23,7 +24,7 @@ DATA_DIR = ROOT / "data"
 SUBSETS = ("FD001", "FD002")
 DEFAULT_REGIMES = {"FD001": 1, "FD002": 6}
 SETTING_COLS = ("op1", "op2", "op3")
-META_COLS = ("unit", "cycle", "RUL", "regime")
+META_COLS = ("unit", "cycle", "RUL", "RUL_raw", "regime")
 
 
 def read_input(data_dir, split, subset):
@@ -76,6 +77,8 @@ def normalize_subset(train, test, subset, n_regimes=None):
         train_regimes = clusterer.fit_predict(train_settings)
         test_regimes = clusterer.predict(test_settings)
 
+    clusterer_fitted = None if n_regimes == 1 else clusterer
+    regime_scalers = {}
     train_out, test_out = train.copy(), test.copy()
     # Some sensor columns contain integer-valued raw readings; normalized
     # values are fractional, so make the output columns floating point first.
@@ -92,12 +95,23 @@ def normalize_subset(train, test, subset, n_regimes=None):
         if not mask.any():
             raise ValueError(f"{subset} regime {regime} has no training rows")
         scaler = StandardScaler().fit(train.loc[mask, sensors])
+        regime_scalers[regime] = scaler
         train_out.loc[mask, sensors] = scaler.transform(train.loc[mask, sensors])
         test_mask = test_regimes == regime
         if test_mask.any():
             test_out.loc[test_mask, sensors] = scaler.transform(test.loc[test_mask, sensors])
 
-    return train_out, test_out, setting_cols, sensors
+    # Everything needed to preprocess a NEW engine the same way (used by the dashboard).
+    bundle = {
+        "subset": subset,
+        "n_regimes": n_regimes,
+        "setting_cols": setting_cols,
+        "sensors": sensors,
+        "setting_scaler": setting_scaler,
+        "clusterer": clusterer_fitted,
+        "regime_scalers": regime_scalers,
+    }
+    return train_out, test_out, setting_cols, sensors, bundle
 
 
 def main():
@@ -116,20 +130,26 @@ def main():
     regimes = {"FD001": args.fd001_regimes, "FD002": args.fd002_regimes}
 
     for subset in SUBSETS:
-        train, train_path = read_input(data_dir, "train", subset)
-        test, test_path = read_input(data_dir, "test", subset)
-        train_norm, test_norm, settings, sensors = normalize_subset(
+        try:
+            train, train_path = read_input(data_dir, "train", subset)
+            test, test_path = read_input(data_dir, "test", subset)
+        except FileNotFoundError as err:
+            print(f"{subset}: skipped ({err})")
+            continue
+        train_norm, test_norm, settings, sensors, bundle = normalize_subset(
             train, test, subset, regimes[subset]
         )
         train_out = data_dir / f"norm_{train_path.name}"
         test_out = data_dir / f"norm_{test_path.name}"
+        joblib.dump(bundle, data_dir / f"preproc_{subset}.joblib")
         train_norm.to_csv(train_out, sep=" ", index=False, float_format="%.8g")
         test_norm.to_csv(test_out, sep=" ", index=False, float_format="%.8g")
         print(
             f"{subset}: {regimes[subset]} regime(s) from {settings}; "
             f"standardized {len(sensors)} sensors using train-only statistics.\n"
             f"  saved {train_out.name} ({len(train_norm)} rows)\n"
-            f"  saved {test_out.name} ({len(test_norm)} rows)"
+            f"  saved {test_out.name} ({len(test_norm)} rows)\n"
+            f"  saved preproc_{subset}.joblib (fitted regimes + scalers)"
         )
 
 
