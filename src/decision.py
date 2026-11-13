@@ -15,6 +15,10 @@ residuals pooled (global). These are the same residuals that the conformal inter
 Costs. Acting now (planned maintenance) costs Cs. Waiting costs Cu if the engine fails within the
 horizon and nothing otherwise. Act now when p * Cu > Cs, i.e. when the cost ratio rho = Cu / Cs
 exceeds the breakeven ratio T = 1 / p.
+
+Three-way advice (dashboard). With score = p * rho: WAIT when score < 1 / band, ACT when score > band, and
+INVESTIGATE in between, where acting and waiting cost about the same and the call is left to the user.
+The horizon is a free input; only the horizons in VALIDATED_HORIZONS have cost results in the report.
 """
 from __future__ import annotations
 
@@ -27,6 +31,10 @@ import numpy as np
 STAGES = ("early", "mid", "late")
 MARGIN_GRID = np.arange(-20.0, 81.0, 1.0)  # safety margins (cycles) tried by the margin baselines
 GRID_POINTS = 501  # quantile grid stored in the JSON model for the dashboard
+VALIDATED_HORIZONS = (15, 30, 50)  # horizons with cost sweeps and bootstrap intervals in the report
+H_MIN, H_MAX = 5.0, 60.0           # horizon range the dashboard accepts (training RUL labels are capped at 125)
+DEFAULT_BAND = 2.0                 # INVESTIGATE band: 1/band <= p * rho <= band
+ADVICE = ("WAIT", "INVESTIGATE", "ACT")
 
 
 def stage_for_rul(rul, early_threshold: float = 100.0, late_threshold: float = 30.0) -> np.ndarray:
@@ -145,6 +153,12 @@ class LocalResidualModel:
             p[missing] = self.fallback.failure_prob(yhat[missing], stage[missing], horizon)
         return p
 
+    def n_nearby(self, yhat) -> np.ndarray:
+        """Number of calibration windows within +-bandwidth of each predicted RUL (what the local p rests on)."""
+        q = np.round(np.atleast_1d(np.asarray(yhat, dtype=float)) * 4.0) / 4.0  # same resolution as failure_prob
+        lo = np.searchsorted(self.yhat, q - self.bandwidth, side="left")
+        hi = np.searchsorted(self.yhat, q + self.bandwidth, side="right")
+        return (hi - lo).astype(int)
 
     def to_json(self, decimals: int = 2) -> dict:
         """Calibration pairs sorted by predicted RUL (rounded, to keep the file small)."""
@@ -235,3 +249,85 @@ def bootstrap_cost_difference(units, cost_a, cost_b, rng, n_boot: int = 1000):
     denom = count[idx].sum(axis=1)
     diff = sum_a[idx].sum(axis=1) / denom - sum_b[idx].sum(axis=1) / denom
     return observed, float(np.percentile(diff, 2.5)), float(np.percentile(diff, 97.5)), float((diff < 0).mean())
+
+
+# ---------------------------------------------------------------- dashboard helpers: horizon, three-way advice, dollars
+
+def check_horizon(horizon: float, h_min: float = H_MIN, h_max: float = H_MAX) -> float:
+    """The horizon as a float, or ValueError if it is outside the range the dashboard accepts."""
+    h = float(horizon)
+    if not (h_min <= h <= h_max):  # also rejects NaN
+        raise ValueError(f"horizon must be between {h_min:g} and {h_max:g} cycles, got {horizon}")
+    return h
+
+
+def horizon_is_validated(horizon: float) -> bool:
+    """True for the horizons that have cost sweeps and bootstrap intervals (VALIDATED_HORIZONS)."""
+    return any(abs(float(horizon) - v) < 1e-9 for v in VALIDATED_HORIZONS)
+
+
+def triage(p, cost_ratio: float, band: float = DEFAULT_BAND) -> np.ndarray:
+    """WAIT / INVESTIGATE / ACT from score = p * cost_ratio.
+
+    WAIT if score < 1 / band, ACT if score > band, INVESTIGATE otherwise. ACT always agrees with the plain
+    breakeven rule (score > 1) and WAIT with its opposite; INVESTIGATE covers both sides of the breakeven.
+    """
+    if band < 1.0:
+        raise ValueError("band must be at least 1")
+    if cost_ratio <= 0:
+        raise ValueError("cost_ratio must be positive")
+    score = np.atleast_1d(np.asarray(p, dtype=float)) * float(cost_ratio)
+    return np.where(score < 1.0 / band, "WAIT", np.where(score > band, "ACT", "INVESTIGATE"))
+
+
+def decide_triage(model: ResidualModel, yhat, stage, horizon: float, cost_ratio: float, band: float = DEFAULT_BAND,
+                  pooled: bool = False, local: "LocalResidualModel | None" = None) -> dict:
+    """`decide` plus the three-way advice. Adds score (p * cost_ratio), advice and flagged (advice == INVESTIGATE)."""
+    horizon = check_horizon(horizon)
+    out = decide(model, yhat, stage, horizon, cost_ratio, pooled=pooled, local=local)
+    out["score"] = out["p"] * float(cost_ratio)
+    out["advice"] = triage(out["p"], cost_ratio, band)
+    out["flagged"] = out["advice"] == "INVESTIGATE"
+    return out
+
+
+def advice_shares(advice) -> dict:
+    """Share of windows given each piece of advice, e.g. {"WAIT": 0.7, "INVESTIGATE": 0.1, "ACT": 0.2}."""
+    advice = np.asarray(advice)
+    n = max(len(advice), 1)
+    return {a: float((advice == a).sum() / n) for a in ADVICE}
+
+
+def p_reliable(model: ResidualModel, yhat, stage, local: "LocalResidualModel | None" = None) -> np.ndarray:
+    """False where p rests on thin calibration data.
+
+    With a local model: True if enough calibration windows have a similar predicted RUL, or else the stage's own
+    residuals are used (the fallback). Without one: True unless the stage fell back to the pooled residuals.
+    """
+    yhat = np.atleast_1d(np.asarray(yhat, dtype=float))
+    stage = np.broadcast_to(np.asarray(stage), yhat.shape)
+    stage_ok = np.array([not model.fallback.get(str(s), True) for s in stage.tolist()], dtype=bool)
+    if local is None:
+        return stage_ok
+    return (local.n_nearby(yhat) >= local.min_local) | stage_ok
+
+
+def ratio_from_costs(planned_cost: float, failure_cost: float) -> float:
+    """Cost ratio rho = Cu / Cs from dollar amounts. Both must be positive."""
+    if planned_cost <= 0 or failure_cost <= 0:
+        raise ValueError("costs must be positive")
+    return float(failure_cost) / float(planned_cost)
+
+
+def dollar_summary(p, planned_cost: float, failure_cost: float) -> dict:
+    """The same comparison as the breakeven rule, in dollars, for one failure probability p.
+
+    wait_expected = p * Cu, act_cost = Cs, difference = |wait_expected - act_cost|. `cheaper` is "act" when
+    waiting is expected to cost more (p * Cu > Cs, the same test as p * rho > 1), otherwise "wait".
+    """
+    ratio_from_costs(planned_cost, failure_cost)  # validates the inputs
+    p = float(p)
+    wait_expected = p * float(failure_cost)
+    act_cost = float(planned_cost)
+    return {"wait_expected": wait_expected, "act_cost": act_cost,
+            "difference": abs(wait_expected - act_cost), "cheaper": "act" if wait_expected > act_cost else "wait"}
