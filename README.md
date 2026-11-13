@@ -4,6 +4,8 @@ Remaining-useful-life (RUL) prediction with conformal uncertainty and a breakeve
 
 Projects in Data Science IDC4290
 
+**Live dashboard: https://echorulprediction.streamlit.app/**
+
 ## Setup
 
 Run every command from the repository root with the virtual environment active. Requires Python 3.10+.
@@ -13,7 +15,7 @@ git clone <repo-url>
 cd <repo-folder>
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install numpy pandas scikit-learn matplotlib xgboost jupyter torch joblib
+pip install numpy pandas scikit-learn matplotlib xgboost jupyter torch joblib streamlit
 ```
 
 On Windows, `pip install torch` gives a CPU-only build. For an NVIDIA GPU, install the CUDA build from
@@ -57,7 +59,7 @@ Mamba uses the same flags with `--model mamba`. It is a pure-PyTorch implementat
 state-space block (Gu & Dao, 2023), so it runs on any machine with no extra packages. It is not the
 fused `mamba-ssm` CUDA kernel, and its weights are not interchangeable with that package. It is much
 slower than the Transformer (about a minute per epoch on a laptop GPU), so train it on a GPU and use
-the saved checkpoints elsewhere.
+the saved checkpoints elsewhere. It is trained for FD002 only and is not used by the dashboard.
 
 Baselines (random forest and XGBoost on the same windows and engine split; use the same seeds):
 
@@ -89,14 +91,13 @@ python scripts/conformal_calibration.py --checkpoint results/checkpoints/transfo
 
 - `--repeats N` repeats the engine split N times and reports mean, min and max coverage per stage.
   With few late-stage engines a single split is noisy, so use this for any number you report.
-- `--final` calibrates on all test engines and writes `conformal_quantiles_final.json`, the file the
-  decision layer and dashboard read. Its coverage is evidenced by the repeated splits, not measured on
-  the same engines.
+- `--final` calibrates on all test engines and writes `conformal_quantiles_final.json`. Its coverage is
+  evidenced by the repeated splits, not measured on the same engines.
 
 Outputs in `results/<subset>/`: `conformal_windows.csv` (every window with prediction, true RUL, signed
-residual and both intervals), `conformal_quantiles.json` (single split), `conformal_quantiles_final.json`,
-`conformal_summary.csv` (coverage, width and 95% engine-bootstrap CIs by stage, true-RUL bin and regime),
-`conformal_repeats.csv`, `conformal_repeats_by_split.csv`, `conformal_repeats_quantiles.csv`,
+residual, stage, split and interval half-width), `conformal_quantiles.json` (single split, and the name of
+the checkpoint used), `conformal_quantiles_final.json`, `conformal_summary.csv` (coverage, width and 95%
+engine-bootstrap CIs by stage, true-RUL bin and regime), `conformal_repeats*.csv`,
 `conformal_coverage_sweep.csv` (80/90/95% targets) and two figures.
 
 Notes: groups use predicted RUL only (known at deployment). Signed residual is predicted minus true, so
@@ -104,11 +105,67 @@ positive means RUL was overestimated (the dangerous direction). Coverage by true
 diagnostic and is not guaranteed by the method. A stage with fewer than 30 calibration windows falls
 back to the global quantile. Overlapping windows are dependent, so CIs resample engines, not windows.
 
-## 4. Tests
+## 4. Decision layer
+
+Turns the conformal residuals into a failure probability `p` (the chance the true RUL is at or below the
+horizon H) and compares ECHO's break-even rule (act when `p x cost ratio > 1`) with the point rule and with
+tuned-margin baselines. Decisions are scored on engines that did not fit `p`. It reads
+`results/<subset>/conformal_windows.csv`, so run step 3 first.
+
+```bash
+python scripts/decision_layer.py --subset FD002 --repeats 20 --write-final-model
+```
+
+- `--write-final-model` writes `decision_model_final.json`, which the dashboard reads.
+- Default horizons are H = 15, 30 and 50. These are the only horizons with cost sweeps and confidence
+  intervals. The dashboard accepts other H but marks them as not validated.
+- Costs are a stylized per-window model (acting costs 1; waiting costs the cost ratio if the engine fails
+  within H). They are not a run-to-failure simulation.
+
+Outputs in `results/<subset>/`: `decision_sweep.csv`, `decision_bootstrap.csv`, `decision_reliability.csv`,
+`decision_repeats*.csv`, `decision_model_final.json` and three `fig_decision_*.png` figures.
+
+## 5. Dashboard
+
+Live version: https://echorulprediction.streamlit.app/
+
+Run it locally from the repository root:
+
+```bash
+streamlit run app/dashboard.py
+```
+
+It opens at `http://localhost:8501`. Streamlit may ask for an email the first time; press Enter to skip.
+
+It reads `results/<subset>/conformal_windows.csv` and `decision_model_final.json` (plus
+`decision_sweep.csv` if present). FD001 appears only if its results files exist. All calculations are in
+`src/decision.py`, `src/dashboard_logic.py` and `src/upload_logic.py`, so they are tested without the page.
+
+**Uploading your own engines (local only).** The upload section scores a file in the raw NASA layout (no
+header, 26 columns: engine id, cycle, 3 settings, 21 sensors; each engine at least 30 cycles). It needs
+PyTorch, scikit-learn and joblib, `data/preproc_<subset>.joblib`, and the checkpoint named in
+`results/<subset>/conformal_quantiles.json`. If any of these is missing, the section says what is missing
+and the rest of the page still works. The hosted version has no checkpoint or preprocessing file
+(both are gitignored), so uploads work only when you run the dashboard on your own machine.
+
+**Deploying.** The hosted app runs on Streamlit Community Cloud from this repo with main file
+`app/dashboard.py`. Its dependencies come from `app/requirements.txt` (streamlit, pandas, numpy; no
+PyTorch), which takes precedence over any requirements file at the repo root. The `results/<subset>/` CSV
+and JSON files the page reads must be committed. Free apps sleep when idle, so the first visit after a
+while may take a few seconds to wake.
+
+Known limits: the "Does it hold up?" numbers come from a single engine split with no confidence
+interval (the report has repeated splits); per-cycle predictions are noisy, so the advice can change
+from cycle to cycle; the INVESTIGATE band is a design choice, not a measured result.
+
+## 6. Tests
 
 ```bash
 python -m unittest discover tests
 ```
+
+The suite covers the conformal code, models, decision layer, dashboard logic and upload scoring (72 tests).
+Upload and model tests are skipped if PyTorch or scikit-learn is not installed.
 
 ## Sharing trained models
 
@@ -126,14 +183,15 @@ without `--repeats`. The printed FD002 global q should be 27.63. If it differs, 
 
 | Path | What it is |
 |---|---|
+| `app/` | The Streamlit dashboard (`dashboard.py`) and the lightweight dependency list used for hosting (`requirements.txt`). |
 | `data/` | NASA files and the saved preprocessing. Gitignored; created by `src/data_setup.py`. |
-| `scripts/` | Pipeline scripts: data download and cleaning, training, baselines, model comparison, conformal calibration. |
-| `src/` | Data loading, windowing, and the Transformer and Mamba models. |
+| `scripts/` | Pipeline scripts: data download and cleaning, training, baselines, model comparison, conformal calibration, decision layer. |
+| `src/` | Data loading, windowing, the Transformer and Mamba models, and the decision, dashboard and upload logic. |
 | `notebooks/` | Jupyter notebooks for exploration and building figures. |
-| `results/<subset>/` | Metrics, histories, conformal tables and figures for FD001 and FD002. These go into the report. |
+| `results/<subset>/` | Metrics, histories, conformal and decision tables and figures for FD001 and FD002. The dashboard reads from here. |
 | `results/checkpoints/` | Trained model weights. Gitignored except the files added on purpose. |
 | `docs/` | Proposal, report and presentation slides. |
-| `tests/` | Unit tests for the conformal code and the models. |
+| `tests/` | Unit tests for the conformal code, models, decision layer, dashboard logic and upload scoring. |
 | `.gitignore` | Keeps data, virtual environments, model files and caches out of git. |
 | `README.md` | This file. |
 
