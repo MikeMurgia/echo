@@ -180,7 +180,10 @@ def repeated_splits(win: pd.DataFrame, truth_col: str, args, horizons, rhos) -> 
         fq = fit_quantiles(cal["abs_res"].to_numpy(), cal["stage"].to_numpy(), args.interval_coverage, args.min_group)
         ev = ev.assign(hw_mondrian=ev["stage"].map(fq["stage"]).to_numpy(dtype=float))
         masks = {s: m for s, m in scope_masks(ev).items() if s in ("all", "final_cycle")}
-        sources = make_sources(model, cal, args.bandwidths, args.min_local, pooled=False)
+        # Keep pooled and stage-conditional probability estimates in the repeated
+        # split ablation so both are evaluated on the same calibration/evaluation
+        # engines for each seed.
+        sources = make_sources(model, cal, args.bandwidths, args.min_local, pooled=True)
         for horizon in horizons:
             failure = (ev[truth_col] <= horizon).to_numpy()
             margins = margins_for(calibration_pack(cal, truth_col, horizon), rhos)

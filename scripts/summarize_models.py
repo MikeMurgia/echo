@@ -22,6 +22,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--subset", choices=("FD001", "FD002"), default="FD002")
     parser.add_argument("--results-dir", type=Path, default=ROOT / "results")
+    parser.add_argument("--run", action="append", metavar="MODEL:TAG",
+                        help="include only this model/tag pair; repeat to select several runs")
     args = parser.parse_args()
 
     folder = args.results_dir / args.subset
@@ -32,6 +34,15 @@ def main() -> None:
     if "tag" not in frame.columns:
         frame["tag"] = "default"
     frame["tag"] = frame["tag"].fillna("default")
+    if args.run:
+        selected = set()
+        for value in args.run:
+            if ":" not in value:
+                parser.error(f"--run must be MODEL:TAG, got {value!r}")
+            selected.add(tuple(value.split(":", 1)))
+        frame = frame[[(model, tag) in selected for model, tag in zip(frame.model, frame.tag)]]
+        if frame.empty:
+            raise SystemExit(f"No matching metrics in {folder} for: {', '.join(args.run)}")
     cols = [c for c in COLUMNS if c in frame.columns]
     keys = ["model", "tag"]
     table = frame.groupby(keys)[cols].agg(["mean", "std"])
